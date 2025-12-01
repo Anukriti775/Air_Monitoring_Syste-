@@ -1,0 +1,84 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <DHT.h>
+
+#define DHTPIN D2
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+#define MQ4_PIN A0
+
+// -----------------------------------
+const char* ssid = "Nokia 2.3";
+const char* password = "12345678";
+String apiKey = "YGTEJ5IHUZW7RJWF";
+// -----------------------------------
+
+const char* server = "http://api.thingspeak.com/update";
+
+WiFiClient client;  // ⭐ REQUIRED FOR NEW begin() API
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  // ----- Read MQ4 -----
+  int mq4_value = analogRead(MQ4_PIN);
+
+  // ----- Read DHT11 -----
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("DHT read failed!");
+    delay(2000);
+    return;
+  }
+
+  // ----- Print values -----
+  Serial.println("--------------------------");
+  Serial.print("Temperature: ");
+  Serial.println(t);
+
+  Serial.print("Humidity: ");
+  Serial.println(h);
+
+  Serial.print("Gas Value: ");
+  Serial.println(mq4_value);
+  Serial.println("--------------------------");
+
+  // ----- Send to ThingSpeak -----
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String url = String(server) +
+                 "?api_key=" + apiKey +
+                 "&field1=" + String(t) +
+                 "&field2=" + String(h) +
+                 "&field3=" + String(mq4_value);
+
+    http.begin(client, url);   // ⭐ NEW FORMAT
+
+    int httpCode = http.GET();
+    http.end();
+
+    Serial.print("ThingSpeak Response: ");
+    Serial.println(httpCode);  // 200 = OK
+  }
+
+  delay(20000); // ThingSpeak allows 15-20 sec between updates
+}
