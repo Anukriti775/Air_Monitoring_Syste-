@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Air Monitoring Dashboard — Delhi</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root{
+    --accent:#2e7dff;
+    --bg:#eef2f7;
+    --card:#ffffff;
+    --safe:#2ecc71;
+    --warn:#f6c23e;
+    --danger:#e74c3c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:"Poppins",Arial;
+    background:var(--bg);
+    display:flex;
+    min-height:100vh;
+  }
+
+  /* Sidebar */
+  .sidebar{
+    width:230px;
+    background:var(--accent);
+    color:white;
+    padding:25px 15px;
+    height:100vh;
+    position:fixed;
+  }
+  .sidebar-title{
+    font-size:22px;
+    font-weight:700;
+    text-align:center;
+    margin-bottom:25px;
+  }
+  .menu-item{
+    padding:12px 12px;
+    border-radius:10px;
+    margin:8px 0;
+    cursor:pointer;
+  }
+  .menu-item.active,.menu-item:hover{
+    background:rgba(255,255,255,0.15);
+  }
+
+  /* Main */
+  .main{
+    margin-left:230px;
+    padding:25px;
+    width:calc(100% - 230px);
+  }
+
+  .hidden{display:none;}
+
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    margin-bottom:18px;
+  }
+  .status-pill{
+    background:white;
+    padding:8px 12px;
+    border-radius:20px;
+    font-size:14px;
+    margin-left:8px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.08);
+  }
+
+  /* Cards row */
+  .cards-row{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:18px;
+  }
+
+  .card{
+    background:var(--card);
+    padding:18px;
+    border-radius:14px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.08);
+  }
+  .card h3{margin:0 0 6px;font-size:17px;}
+  .metric-value{font-size:30px;font-weight:700;color:var(--accent);}
+  .small{font-size:13px;color:#444;margin-top:6px;}
+
+  /* Status badges */
+  .badge{
+    padding:6px 10px;
+    border-radius:20px;
+    display:inline-block;
+    font-size:13px;
+    margin-top:10px;
+    font-weight:600;
+  }
+  .safe{background:#e9f7ee;color:var(--safe);}
+  .moderate{background:#fff8db;color:var(--warn);}
+  .danger{background:#ffe4e2;color:var(--danger);}
+  .glow-danger{
+    box-shadow:0 0 14px rgba(231,76,60,0.4);
+    border:1px solid rgba(231,76,60,0.2);
+  }
+
+  /* AQI Gauge container */
+  .gauge-container{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:160px;
+    position:relative;
+  }
+  .gauge-text{position:absolute;text-align:center;}
+
+  /* Graphs row */
+  .graphs-row{
+    margin-top:25px;
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:18px;
+  }
+  iframe{
+    width:100%;
+    height:230px;
+    border-radius:10px;
+    border:none;
+  }
+  .graph-card{
+    background:white;
+    padding:10px;
+    border-radius:14px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.06);
+  }
+
+  /* Map section */
+  .map-section{margin-top:25px;}
+  #map{
+    width:100%;
+    height:300px;
+    border-radius:14px;
+  }
+
+  /* Alerts page */
+  .filter-btn{
+    padding:8px 12px;
+    border:none;
+    border-radius:8px;
+    background:#2e7dff;
+    color:white;
+    cursor:pointer;
+  }
+  .filter-btn:hover{background:#1b5fd1;}
+  .clear-btn{
+    padding:8px 12px;
+    border:none;
+    border-radius:8px;
+    background:#e74c3c;
+    color:white;
+    cursor:pointer;
+  }
+
+  .alert-card{
+    background:white;
+    border-left:6px solid red;
+    padding:12px;
+    border-radius:10px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.1);
+  }
+
+  .timeline-item{
+    margin-bottom:18px;
+    position:relative;
+  }
+  .timeline-item::before{
+    content:"";
+    width:14px;
+    height:14px;
+    background:#2e7dff;
+    border-radius:50%;
+    position:absolute;
+    left:-22px;
+    top:4px;
+  }
+</style>
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-title">Air Monitor</div>
+  <div class="menu-item active" onclick="showSection('dashboard')">📊 Dashboard</div>
+  <div class="menu-item" onclick="showSection('alerts')">🔔 Alerts</div>
+  <div class="menu-item" onclick="showSection('settings')">⚙️ Settings</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <div class="topbar">
+    <h2>Air Monitoring Dashboard — Delhi</h2>
+
+    <div style="display:flex;">
+      <div class="status-pill"><b>Sensor:</b> <span id="sensorStatus">Checking...</span></div>
+      <div class="status-pill"><b>Last update:</b> <span id="lastUpdate">--</span></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section id="dashboard">
+    <div class="cards-row">
+      <div class="card" id="tempCard">
+        <h3>🌡️ Temperature</h3>
+        <div class="metric-value" id="tempValue">-- °C</div>
+        <span id="tempBadge" class="badge safe">--</span>
+      </div>
+
+      <div class="card" id="humCard">
+        <h3>💧 Humidity</h3>
+        <div class="metric-value" id="humValue">-- %</div>
+        <span id="humBadge" class="badge safe">--</span>
+      </div>
+
+      <div class="card" id="gasCard">
+        <h3>🔥 Gas Level</h3>
+        <div class="metric-value" id="gasValue">-- ppm</div>
+        <span id="gasBadge" class="badge safe">--</span>
+      </div>
+
+      <div class="card">
+        <h3>🌬️ Combined AQI</h3>
+        <div class="gauge-container" id="gaugeRoot">
+          <div class="gauge-text">
+            <div id="aqiScore">--</div>
+            <div id="aqiText">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="graphs-row">
+      <div class="graph-card">
+        <h4>📈 Temperature</h4>
+        <iframe src="https://api.thingspeak.com/channels/3185560/charts/1?api_key=KSWZQM4ENALLMJ3R&dynamic=true&type=line"></iframe>
+      </div>
+
+      <div class="graph-card">
+        <h4>📉 Humidity</h4>
+        <iframe src="https://api.thingspeak.com/channels/3185560/charts/2?api_key=KSWZQM4ENALLMJ3R&dynamic=true&type=line"></iframe>
+      </div>
+
+      <div class="graph-card">
+        <h4>🔥 Gas</h4>
+        <iframe src="https://api.thingspeak.com/channels/3185560/charts/3?api_key=KSWZQM4ENALLMJ3R&dynamic=true&type=line"></iframe>
+      </div>
+    </div>
+
+    <div class="map-section card">
+      <h3>📍 Device Location</h3>
+      <div id="map"></div>
+    </div>
+  </section>
+
+  <!-- ALERTS SECTION -->
+  <section id="alerts" class="hidden">
+    <h1>Alerts</h1>
+
+    <div style="margin: 15px 0; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="filter-btn" onclick="filterAlerts('all')">All</button>
+        <button class="filter-btn" onclick="filterAlerts('temperature')">Temperature</button>
+        <button class="filter-btn" onclick="filterAlerts('humidity')">Humidity</button>
+        <button class="filter-btn" onclick="filterAlerts('gas')">Gas</button>
+        <button class="clear-btn" onclick="clearAlerts()">🧹 Clear All Alerts</button>
+    </div>
+
+    <div id="liveAlerts" style="display:flex; flex-direction:column; gap:12px; margin-bottom:25px;"></div>
+
+    <div class="card">
+        <h3>📋 Last 10 Readings</h3>
+        <table id="readingsTable" style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+                <tr style="background:#f0f4ff; text-align:left;">
+                    <th>Time</th>
+                    <th>Temp</th>
+                    <th>Humidity</th>
+                    <th>Gas</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top:25px;">
+        <h3>🕒 Alert Timeline</h3>
+        <div id="timeline" style="margin-top:15px; border-left:3px solid #2e7dff; padding-left:15px;"></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS SECTION -->
+<section id="settings" class="hidden">
+    <h1>Settings</h1>
+
+    <!-- THEME MODE -->
+    <div class="card" style="margin-bottom:25px;">
+        <h3>🌓 Theme Mode</h3>
+        <label style="font-size:16px; display:flex; align-items:center; gap:12px; margin-top:10px;">
+            <span id="themeLabel">Light Mode</span>
+            <label class="switch">
+                <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+                <span class="slider round"></span>
+            </label>
+        </label>
+    </div>
+
+    <!-- DOWNLOAD REPORT -->
+    <div class="card" style="margin-bottom:25px;">
+        <h3>📄 Download Report</h3>
+        <p style="font-size:14px; color:#555;">Generate a PDF with last 10 readings, alerts, AQI and device info.</p>
+        <button class="filter-btn" onclick="downloadPDF()">Download PDF</button>
+    </div>
+
+    <!-- THRESHOLD SETTINGS -->
+    <div class="card">
+        <h3>⚙️ Threshold Configuration</h3>
+
+        <!-- Temperature -->
+        <label style="font-size:14px; margin-top:10px;">🌡 Max Temperature Alert (<span id="tVal"></span>°C)</label>
+        <input type="range" min="25" max="50" id="tempTh" oninput="updateThresholdLabels()" />
+
+        <!-- Humidity -->
+        <label style="font-size:14px; margin-top:15px;">💧 Humidity Range</label>
+        <br>
+        Min: <span id="hMinVal"></span>%  
+        <input type="range" min="10" max="60" id="humMinTh" oninput="updateThresholdLabels()">
+        <br>
+        Max: <span id="hMaxVal"></span>%
+        <input type="range" min="40" max="90" id="humMaxTh" oninput="updateThresholdLabels()">
+
+        <!-- Gas -->
+        <label style="font-size:14px; margin-top:15px;">🔥 Gas Alert Threshold (<span id="gVal"></span> ppm)</label>
+        <input type="range" min="100" max="600" id="gasTh" oninput="updateThresholdLabels()" />
+    </div>
+</section>
+
+<!-- SWITCH STYLE -->
+<style>
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 26px;
+}
+.switch input {display:none;}
+.slider {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s; border-radius: 34px;
+}
+.slider:before {
+  position: absolute; content: "";
+  height: 20px; width: 20px;
+  left: 3px; bottom: 3px;
+  background-color: white;
+  transition: 0.4s; border-radius: 50%;
+}
+input:checked + .slider {background-color: #2e7dff;}
+input:checked + .slider:before {transform: translateX(24px);}
+</style>
+
+
+</div>
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+/* ⭐ FIXED SECTION SWITCHING ⭐ */
+function showSection(sectionId) {
+    // Hide all sections
+    document.querySelectorAll("section").forEach(sec => {
+        sec.classList.add("hidden");
+    });
+
+    // Show the selected section
+    document.getElementById(sectionId).classList.remove("hidden");
+
+    // Remove highlight from menu
+    document.querySelectorAll(".menu-item").forEach(m => m.classList.remove("active"));
+
+    // Highlight correct menu item
+    document.querySelectorAll(".menu-item").forEach(m => {
+        if (m.innerText.includes(sectionId.charAt(0).toUpperCase() + sectionId.slice(1))) {
+            m.classList.add("active");
+        }
+    });
+}
+
+/* -------------------- CONFIG -------------------- */
+const CHANNEL_ID = "3185560";
+const READ_API_KEY = "KSWZQM4ENALLMJ3R";
+const FETCH_INTERVAL = 15000;
+
+/* -------------------- MAP ----------------------- */
+const map = L.map('map').setView([28.6139, 77.2090], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+L.marker([28.6139, 77.2090]).addTo(map).bindPopup("Device: Delhi");
+
+/* -------------------- ALERT SYSTEM -------------------- */
+let alerts = [];
+let last10 = [];
+
+/* Add an alert object */
+function addAlert(type, message, value){
+    const alert = {
+        type,
+        message,
+        value,
+        time: new Date().toLocaleString()
+    };
+
+    alerts.unshift(alert);
+    if(alerts.length > 100) alerts.pop();
+
+    updateAlertsUI();
+    updateTimeline();
+}
+
+/* Display live alert cards */
+function updateAlertsUI(){
+    const box = document.getElementById("liveAlerts");
+    box.innerHTML = "";
+
+    alerts.forEach(a=>{
+        let div = document.createElement("div");
+        div.className = "alert-card";
+        div.innerHTML = `
+            <b>${a.type.toUpperCase()}</b>: ${a.message}
+            <br><small>${a.time}</small>
+        `;
+        box.appendChild(div);
+    });
+}
+
+/* Build timeline */
+function updateTimeline(){
+    const t = document.getElementById("timeline");
+    t.innerHTML = "";
+
+    alerts.forEach(a=>{
+        let item = document.createElement("div");
+        item.className = "timeline-item";
+        item.innerHTML = `
+            <b>${a.type.toUpperCase()}</b> — ${a.message}
+            <br><small>${a.time}</small>
+        `;
+        t.appendChild(item);
+    });
+}
+
+/* Filter alerts by type */
+function filterAlerts(type){
+    const box = document.getElementById("liveAlerts");
+    box.innerHTML = "";
+
+    alerts
+      .filter(a => type === "all" || a.type === type)
+      .forEach(a=>{
+          let div = document.createElement("div");
+          div.className = "alert-card";
+          div.innerHTML = `
+              <b>${a.type.toUpperCase()}</b>: ${a.message}
+              <br><small>${a.time}</small>
+          `;
+          box.appendChild(div);
+      });
+}
+
+/* Clear all alerts */
+function clearAlerts(){
+    alerts = [];
+    updateAlertsUI();
+    updateTimeline();
+}
+
+/* Save last 10 readings */
+function updateReadingHistory(temp, hum, gas){
+    last10.unshift({temp, hum, gas, time: new Date().toLocaleTimeString()});
+    if(last10.length > 10) last10.pop();
+
+    const tbody = document.querySelector("#readingsTable tbody");
+    tbody.innerHTML = "";
+
+    last10.forEach(r=>{
+        tbody.innerHTML += `
+            <tr>
+              <td>${r.time}</td>
+              <td>${r.temp}</td>
+              <td>${r.hum}</td>
+              <td>${r.gas}</td>
+            </tr>
+        `;
+    });
+}
+
+/* -------------------- FETCH LIVE DATA -------------------- */
+function fetchData(){
+    fetch(`https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=1`)
+    .then(r => r.json())
+    .then(data => {
+
+        const feed = data.feeds[0];
+
+        const temp = parseFloat(feed.field1);
+        const hum  = parseFloat(feed.field2);
+        const gas  = parseFloat(feed.field3);
+
+        /* Update numericals */
+        document.getElementById("tempValue").textContent = temp + " °C";
+        document.getElementById("humValue").textContent  = hum + " %";
+        document.getElementById("gasValue").textContent  = gas + " ppm";
+
+        /* Update history list */
+        updateReadingHistory(temp, hum, gas);
+
+        /* Generate alerts */
+        if(temp >= 35) addAlert("temperature", `High Temperature (${temp}°C)`, temp);
+        if(hum < 30 || hum > 70) addAlert("humidity", `Humidity out of range (${hum}%)`, hum);
+
+        if(gas >= 450) addAlert("gas", `TOXIC Gas Level (${gas} ppm)`, gas);
+        else if(gas >= 300) addAlert("gas", `High Gas Level (${gas} ppm)`, gas);
+
+        /* Update statuses */
+        updateStatus(temp, hum, gas);
+
+        /* Update AQI */
+        updateAQI(temp, hum, gas);
+
+        /* Sensor Online/Offline */
+        const last = new Date(feed.created_at);
+        const now  = new Date();
+        const diff = Math.round((now - last)/1000);
+        document.getElementById("lastUpdate").textContent = diff + " sec ago";
+        document.getElementById("sensorStatus").textContent = diff < 120 ? "Online" : "Offline";
+    });
+}
+
+/* -------------------- STATUS BADGES -------------------- */
+function updateStatus(temp, hum, gas){
+    /* Temperature */
+    if(temp >= 35){
+        setDanger("tempBadge", "tempCard", "Danger");
+    } else if(temp >= 30){
+        setModerate("tempBadge", "tempCard", "Warm");
+    } else {
+        setSafe("tempBadge", "tempCard", "Normal");
+    }
+
+    /* Humidity */
+    if(hum < 30 || hum > 70){
+        setDanger("humBadge", "humCard", "Bad");
+    } else if(hum < 35 || hum > 65){
+        setModerate("humBadge", "humCard", "Moderate");
+    } else {
+        setSafe("humBadge", "humCard", "Good");
+    }
+
+    /* Gas */
+    if(gas >= 450){
+        setDanger("gasBadge", "gasCard", "Toxic");
+    } else if(gas >= 300){
+        setModerate("gasBadge", "gasCard", "High");
+    } else {
+        setSafe("gasBadge", "gasCard", "Safe");
+    }
+}
+
+/* Helpers */
+function setDanger(b,c,t){
+    document.getElementById(b).className="badge danger";
+    document.getElementById(b).textContent=t;
+    document.getElementById(c).classList.add("glow-danger");
+}
+function setModerate(b,c,t){
+    document.getElementById(b).className="badge moderate";
+    document.getElementById(b).textContent=t;
+    document.getElementById(c).classList.remove("glow-danger");
+}
+function setSafe(b,c,t){
+    document.getElementById(b).className="badge safe";
+    document.getElementById(b).textContent=t;
+    document.getElementById(c).classList.remove("glow-danger");
+}
+
+/* -------------------- AQI GAUGE -------------------- */
+function updateAQI(temp, hum, gas){
+    let score = 100;
+
+    if(temp < 22 || temp > 35) score -= 20;
+    if(hum  < 30 || hum  > 70) score -= 20;
+    if(gas  > 300) score -= (gas > 450 ? 40 : 20);
+
+    score = Math.max(0, Math.min(100, score));
+
+    document.getElementById("aqiScore").textContent = score;
+    document.getElementById("aqiText").textContent =
+        score > 80 ? "Good" : score > 60 ? "Moderate" : "Poor";
+
+    drawGauge(score);
+}
+
+function drawGauge(val){
+    const root = document.getElementById("gaugeRoot");
+    root.innerHTML = "";
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("width","120");
+    svg.setAttribute("height","120");
+
+    const radius = 50;
+    const cx = 60, cy = 60;
+    const circumference = 2*Math.PI*radius;
+
+    let bg = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    bg.setAttribute("cx",cx); 
+    bg.setAttribute("cy",cy);
+    bg.setAttribute("r",radius);
+    bg.setAttribute("fill","none");
+    bg.setAttribute("stroke","#eee");
+    bg.setAttribute("stroke-width","14");
+    svg.appendChild(bg);
+
+    let arc = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    arc.setAttribute("cx",cx); 
+    arc.setAttribute("cy",cy);
+    arc.setAttribute("r",radius);
+    arc.setAttribute("fill","none");
+    arc.setAttribute("stroke-width","14");
+    arc.setAttribute("transform","rotate(-90 60 60)");
+    arc.setAttribute("stroke-dasharray",`${(val/100)*circumference} ${circumference}`);
+    arc.setAttribute("stroke", val<50 ? "red" : val<70 ? "orange" : "green");
+    svg.appendChild(arc);
+
+    root.appendChild(svg);
+}
+
+/* Start fetching repeatedly */
+fetchData();
+setInterval(fetchData, FETCH_INTERVAL);
+ 
+ /* =====================================================
+   SETTINGS SECTION — THEME, PDF, THRESHOLDS
+   ===================================================== */
+
+/* -------------------- DARK / LIGHT THEME -------------------- */
+
+function applyTheme(theme) {
+    const root = document.documentElement;
+
+    if (theme === "dark") {
+        root.style.setProperty("--bg", "#1e1e1e");
+        root.style.setProperty("--card", "#2b2b2b");
+        root.style.setProperty("--accent", "#4c8dff");
+        root.style.setProperty("--danger", "#ff6b6b");
+        root.style.setProperty("--warn", "#f6c23e");
+
+        document.body.style.color = "white";
+        document.querySelector(".sidebar").style.background = "#111";
+        document.getElementById("themeLabel").innerText = "Dark Mode";
+
+    } else {
+        root.style.setProperty("--bg", "#eef2f7");
+        root.style.setProperty("--card", "#ffffff");
+        root.style.setProperty("--accent", "#2e7dff");
+        root.style.setProperty("--danger", "#e74c3c");
+        root.style.setProperty("--warn", "#f6c23e");
+
+        document.body.style.color = "black";
+        document.querySelector(".sidebar").style.background = "var(--accent)";
+        document.getElementById("themeLabel").innerText = "Light Mode";
+    }
+}
+
+function toggleTheme() {
+    const isDark = document.getElementById("themeToggle").checked;
+    const theme = isDark ? "dark" : "light";
+    localStorage.setItem("themeMode", theme);
+    applyTheme(theme);
+}
+
+/* Apply saved theme on load */
+(function(){
+    const savedTheme = localStorage.getItem("themeMode") || "light";
+    document.getElementById("themeToggle").checked = savedTheme === "dark";
+    applyTheme(savedTheme);
+})();
+
+/* -------------------- THRESHOLD SLIDERS -------------------- */
+
+function updateThresholdLabels() {
+    document.getElementById("tVal").innerText  = document.getElementById("tempTh").value;
+    document.getElementById("hMinVal").innerText = document.getElementById("humMinTh").value;
+    document.getElementById("hMaxVal").innerText = document.getElementById("humMaxTh").value;
+    document.getElementById("gVal").innerText = document.getElementById("gasTh").value;
+
+    saveThresholds();
+}
+
+/* Save thresholds */
+function saveThresholds() {
+    const th = {
+        temp: Number(document.getElementById("tempTh").value),
+        humMin: Number(document.getElementById("humMinTh").value),
+        humMax: Number(document.getElementById("humMaxTh").value),
+        gas: Number(document.getElementById("gasTh").value)
+    };
+
+    localStorage.setItem("thresholds", JSON.stringify(th));
+}
+
+/* Load threshold on start */
+(function(){
+    let th = localStorage.getItem("thresholds");
+    if (th) {
+        th = JSON.parse(th);
+
+        document.getElementById("tempTh").value = th.temp;
+        document.getElementById("humMinTh").value = th.humMin;
+        document.getElementById("humMaxTh").value = th.humMax;
+        document.getElementById("gasTh").value = th.gas;
+    } else {
+        // Default values
+        document.getElementById("tempTh").value = 35;
+        document.getElementById("humMinTh").value = 30;
+        document.getElementById("humMaxTh").value = 70;
+        document.getElementById("gasTh").value = 300;
+    }
+
+    updateThresholdLabels();
+})();
+
+/* -------------------- USE CUSTOM THRESHOLDS IN ALERT ENGINE -------------------- */
+
+function getThresholds() {
+    return JSON.parse(localStorage.getItem("thresholds"));
+}
+
+// OVERRIDE your updateStatus() in dashboard:
+const oldUpdateStatus = updateStatus;
+updateStatus = function(temp, hum, gas) {
+    const th = getThresholds();
+
+    /* Temperature */
+    if (temp >= th.temp) setDanger("tempBadge","tempCard","Danger");
+    else if (temp >= th.temp - 5) setModerate("tempBadge","tempCard","Warm");
+    else setSafe("tempBadge","tempCard","Normal");
+
+    /* Humidity */
+    if (hum < th.humMin || hum > th.humMax) setDanger("humBadge","humCard","Bad");
+    else if (hum < th.humMin + 5 || hum > th.humMax - 5) setModerate("humBadge","humCard","Moderate");
+    else setSafe("humBadge","humCard","Good");
+
+    /* Gas */
+    if (gas >= th.gas) setDanger("gasBadge","gasCard","Toxic");
+    else if (gas >= th.gas - 100) setModerate("gasBadge","gasCard","High");
+    else setSafe("gasBadge","gasCard","Safe");
+};
+
+/* -------------------- PDF REPORT DOWNLOAD -------------------- */
+
+function downloadPDF() {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF();
+
+    const now = new Date().toLocaleString();
+
+    pdf.setFontSize(18);
+    pdf.text("Air Monitoring Report", 10, 15);
+
+    pdf.setFontSize(12);
+    pdf.text("Generated: " + now, 10, 25);
+    pdf.text("Location: Delhi", 10, 32);
+
+    pdf.line(10, 38, 200, 38);
+
+    pdf.setFontSize(14);
+    pdf.text("Current Status", 10, 50);
+
+    pdf.setFontSize(12);
+    pdf.text("Temperature: " + document.getElementById("tempValue").innerText, 10, 60);
+    pdf.text("Humidity: " + document.getElementById("humValue").innerText, 10, 70);
+    pdf.text("Gas Level: " + document.getElementById("gasValue").innerText, 10, 80);
+    pdf.text("AQI Score: " + document.getElementById("aqiScore").innerText, 10, 90);
+
+    pdf.line(10, 100, 200, 100);
+
+    pdf.setFontSize(14);
+    pdf.text("Last 10 Readings", 10, 112);
+
+    pdf.setFontSize(10);
+
+    last10.forEach((r, i) => {
+        pdf.text(
+            `${r.time} | Temp: ${r.temp} | Hum: ${r.hum} | Gas: ${r.gas}`,
+            10,
+            120 + i * 6
+        );
+    });
+
+    pdf.save("AirMonitor_Report.pdf");
+}
+
+/* ------------ Load jsPDF library ------------ */
+(function(){
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    document.body.appendChild(script);
+})();
+
+</script>
+</body>
+</html>
